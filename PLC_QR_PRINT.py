@@ -13,8 +13,7 @@ import qrcode
 import win32print 
 import win32ui 
 from PIL import Image, ImageWin, ImageDraw, ImageFont
-from enum import Enum
-
+from pylibdmtx.pylibdmtx import encode
 
 #############  ZMIENNE - UZUPEŁNIJ  ###############
 
@@ -31,6 +30,17 @@ DB_NUMBER_STR=201
 START_BYTE_STR=66
 #SIZE
 SIZE_STR=50
+
+
+#DB_BLOCK_NUMBER CLAMP DIR
+DB_NUMBER_STR_CLAMP_DIR=20
+#START_BYTE CLAMP DIR
+START_BYTE_STR_CLAMP_DIR=792
+#SIZE CLAMP DIR
+SIZE_STR_CLAMP_DIR=6
+
+
+
 
 DB_NUMBER_ISOUT=210
 BYTE_INDEX=136
@@ -86,7 +96,36 @@ def check_str(db_number, start_byte, size):
     data = data[14:-14]
     
     return data
+
+
+
+
+
+def is_clamp_dir_out(db_number, start_byte, size)     :
+    '''
+    Odczytuje str z podanego data bloku
     
+    Parametry:
+        db_number - int, numer data bloku
+        start_byte - int, bit początkowy
+        size - int, wielkosc stringa
+        
+    Returns:
+        data - str, wartosc stringa z podanego bloku DB
+    '''
+    isout = 0
+    
+    data = client.db_read(db_number, start_byte, size)
+    data = str(data)
+    
+    if data.find("OUT")!=-1:
+        is_out = True
+        
+    elif data.find("IN")!=-1:
+        is_out = False
+        
+    
+    return is_out
 
 def is_out(db_number, byte_index, bit_index):
     
@@ -109,6 +148,8 @@ def is_out(db_number, byte_index, bit_index):
     value = get_bool(data, 0, bit_index)
     
     return value  
+
+
 
 
 
@@ -174,7 +215,48 @@ def save_qr(string, isout):
     # Save the result
     combined_img.save(SAVE_IMG)
 
-    ###
+    
+    
+    
+def save_dmc(string, isout):
+    # Generate DMC code image
+    encoded = encode(string.encode('utf-8'))
+    
+    image = Image.frombytes('RGB', (encoded.width, encoded.height), encoded.pixels)
+    qr_width, qr_height = image.size
+    
+    # Choose the text based on the flag
+    text = "O" if isout else "I"
+        
+        
+    # Load a font (you can specify a .ttf path or use default)
+    try:
+        font = ImageFont.truetype("arial.ttf", 40)  # Use a common font
+    except IOError:
+        font = ImageFont.load_default()
+
+    # Estimate text size
+    bbox = font.getbbox(text)
+    text_width = bbox[2] - bbox[0]
+    text_height = bbox[3] - bbox[1]
+    
+    # Create a new image with space for the QR code and the text
+    new_width = qr_width + text_width + 20  # 20 pixels padding
+    new_height = max(qr_height, text_height + 20)
+    combined_img = Image.new("RGB", (new_width, new_height), "white")
+
+    # Paste QR code on the left
+    combined_img.paste(image, (0, 0))
+
+    # Draw the text on the right side
+    draw = ImageDraw.Draw(combined_img)
+    text_x = qr_width + 10  # 10 pixels padding
+    text_y = (new_height - text_height) // 2
+    draw.text((text_x, text_y), text, font=font, fill="black")
+
+    # Save the result
+    combined_img.save(SAVE_IMG)
+
     
 def print_qr():
         
@@ -239,11 +321,19 @@ while True:
         try:
             # Odczytuje wartosci
             value =   check_str(DB_NUMBER_STR,START_BYTE_STR,SIZE_STR) 
-            out_or_in = is_out(DB_NUMBER_ISOUT,BYTE_INDEX,BIT_INDEX)
             
+            out_or_in = is_clamp_dir_out(DB_NUMBER_STR_CLAMP_DIR, 
+                                         START_BYTE_STR_CLAMP_DIR,
+                                         SIZE_STR_CLAMP_DIR)
+ 
+                                         
+
+ 
+                                         
             if value != old_str:
+                
                 save_str_to_csv(value, out_or_in)
-                save_qr(value, out_or_in)
+                save_dmc(value, out_or_in)
                 time.sleep(1)
                 print_qr()
     
